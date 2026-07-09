@@ -1,0 +1,105 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom font families */
+
+body {
+  @apply font-sans antialiased;
+}
+
+.font-serif {
+  font-family: 'Lora', 'Playfair Display', Georgia, serif;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.5);
+}
+
+/* Dark mode scrollbars */
+.theme-dark ::-webkit-scrollbar-thumb {
+  background: rgba(75, 85, 99, 0.4);
+}
+
+.theme-dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(75, 85, 99, 0.6);
+}
+
+/* TipTap Editor Styling */
+.ProseMirror {
+  outline: none;
+}
+
+/* Placeholder extension styling */
+.ProseMirror p.is-empty::before {
+  color: #a1a1aa;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* In dark mode, placeholder color should be softer */
+.theme-dark .ProseMirror p.is-empty::before {
+  color: #52525b;
+}
+
+/* In sepia mode, placeholder color should match theme */
+.theme-sepia .ProseMirror p.is-empty::before {
+  color: #bcaaa4;
+}
+
+/* Custom styles for Sepia Prose */
+.theme-sepia .prose {
+  --tw-prose-body: #433422;
+  --tw-prose-headings: #2c1a04;
+  --tw-prose-lead: #5c4a37;
+  --tw-prose-links: #8c5820;
+  --tw-prose-bold: #2c1a04;
+  --tw-prose-counters: #7c6853;
+  --tw-prose-bullets: #a1887f;
+  --tw-prose-hr: #e0d5c1;
+  --tw-prose-quotes: #5c4a37;
+  --tw-prose-quote-borders: #d7ccc8;
+  --tw-prose-captions: #7c6853;
+  --tw-prose-code: #5d4037;
+  --tw-prose-pre-code: #f5f2eb;
+  --tw-prose-pre-bg: #4e342e;
+  --tw-prose-th-borders: #d7ccc8;
+  --tw-prose-td-borders: #e0d5c1;
+}
+
+/* Prose tweaks for comfortable reading */
+.prose {
+  line-height: 1.8;
+}
+
+.prose p {
+  margin-top: 1.4em;
+  margin-bottom: 1.4em;
+}
+
+/* Blockquote design */
+.prose blockquote {
+  font-style: italic;
+  border-left-width: 4px;
+  padding-left: 1.5em;
+}
+

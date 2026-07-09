@@ -1,0 +1,230 @@
+/* typesetting/book.css — Professional book typesetting via CSS Paged Media */
+
+/* 1. PAGE SETUP & BLEED */
+@page {
+    /* Standard 6×9 Trade Paperback */
+    size: 6in 9in;
+
+    /* Margins: Top, Outside, Bottom, Inside (Gutter) */
+    margin-top: 0.75in;
+    margin-outside: 0.625in;
+    margin-bottom: 1.0in;
+    margin-inside: 0.875in;
+
+    /* Crop marks + ⅛″ bleed for the printer */
+    bleed: 0.125in;
+    marks: crop cross;
+}
+
+/* Front cover — no headers, no page number, full-bleed image allowed */
+@page cover {
+    margin: 0;
+    bleed: 0.125in;
+    marks: crop cross;
+    @top-left { content: none; }
+    @top-right { content: none; }
+    @bottom-center { content: none; }
+}
+
+/* 2. FRONT MATTER — Roman numerals at bottom-centre */
+@page frontmatter {
+    @bottom-center {
+        content: counter(page, lower-roman);
+        font-family: 'Merriweather', 'Georgia', serif;
+        font-size: 9pt;
+    }
+}
+
+/* Title page itself: no page number displayed */
+@page frontmatter:first {
+    @bottom-center { content: none; }
+}
+
+/* 3. BODY MATTER — Arabic numerals + running headers */
+@page bodymatter {
+    counter-reset: page 1;
+
+    @bottom-center {
+        content: counter(page, decimal);
+        font-family: 'Merriweather', 'Georgia', serif;
+        font-size: 9pt;
+    }
+
+    @top-right {
+        content: string(chapter-title);
+        font-family: 'Merriweather', 'Georgia', serif;
+        font-size: 9pt;
+        font-style: italic;
+        border-bottom: 0.5pt solid #ccc;
+        padding-bottom: 4pt;
+    }
+}
+
+/* Blank pages must have no headers / footers */
+@page :blank {
+    @top-right { content: none; }
+    @bottom-center { content: none; }
+}
+
+/* First page of body matter starts on a right-hand page (page 1) */
+@page bodymatter:right {}
+
+/* 4. BASE TYPOGRAPHY */
+body {
+    font-family: 'Merriweather', 'Georgia', 'Times New Roman', serif;
+    font-size: 11pt;
+    line-height: 1.5;
+    color: #1a1a1a;
+    text-align: justify;
+    hyphens: auto;
+    -webkit-hyphens: auto;
+}
+
+/* Prevent widows and orphans — crucial for a professional look */
+p {
+    widows: 3;
+    orphans: 3;
+    margin-bottom: 0;
+    text-indent: 1.5em;
+}
+
+/* First paragraph after a heading must NOT be indented */
+p:first-of-type,
+h1 + p,
+h2 + p,
+h3 + p {
+    text-indent: 0;
+}
+
+/* 5. HEADINGS & CHAPTER BREAKS */
+h1 {
+    font-family: 'Lora', 'Times New Roman', serif;
+    font-size: 24pt;
+    text-align: center;
+    page-break-before: right;          /* Chapters start on a right-hand page */
+    margin-top: 3in;                    /* Push title down the page */
+    margin-bottom: 1in;
+    string-set: chapter-title content(); /* Capture for running header */
+}
+
+h2 {
+    font-size: 14pt;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    text-align: center;
+    page-break-after: avoid;            /* Don't strand a heading alone at page bottom */
+}
+
+h3 {
+    font-size: 12pt;
+    font-style: italic;
+    margin-top: 1.2em;
+    margin-bottom: 0.4em;
+    page-break-after: avoid;
+}
+
+/* 6. LISTS & TABLES */
+ul, ol {
+    margin-left: 1.5em;
+    margin-bottom: 1em;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1em 0;
+    font-size: 10pt;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 6pt;
+    text-align: left;
+}
+
+/* 7. TABLE OF CONTENTS */
+#toc {
+    page-break-before: right;
+    margin-top: 2in;
+}
+
+#toc h1 {
+    font-size: 24pt;
+    text-align: center;
+    margin-bottom: 1.5in;
+    page-break-before: auto;
+    string-set: none;
+}
+
+#toc ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#toc li {
+    margin-bottom: 0.75em;
+    page-break-inside: avoid;
+    line-height: 1.4;
+}
+
+#toc a {
+    text-decoration: none;
+    color: #000;
+    display: flex;
+    align-items: baseline;
+    border-bottom: none;
+}
+
+#toc a .toc-title {
+    white-space: nowrap;
+    padding-right: 0.3em;
+}
+
+#toc a .toc-dots {
+    border-bottom: 1px dotted #555;
+    flex: 1 1 auto;
+    margin: 0 0.3em;
+    min-width: 1em;
+    position: relative;
+    top: -2pt;
+}
+
+/* 8. IMAGE HANDLING */
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 2em auto;
+    page-break-inside: avoid;
+}
+
+/* Full-bleed images extend past the text margins */
+img.full-bleed {
+    width: 110%;
+    margin-left: -5%;
+    max-width: none;
+}
+
+/* Image captions */
+.image-caption {
+    font-size: 9pt;
+    font-style: italic;
+    color: #444;
+    text-align: center;
+    margin-top: 0.5em;
+    page-break-inside: avoid;
+}
+
+/* Prevent images from breaking across pages */
+.image-wrapper {
+    page-break-inside: avoid;
+    margin: 2em 0;
+}
+
+/* 9. HYPERLINKS IN PDF */
+a {
+    color: #000;
+    text-decoration: none;
+}
+
