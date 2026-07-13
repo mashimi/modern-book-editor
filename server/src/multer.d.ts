@@ -1,9 +1,9 @@
 declare module 'multer' {
-  import { RequestHandler } from 'express';
+  import { Request, RequestHandler } from 'express';
 
   interface DiskStorageOptions {
-    destination: (req: any, file: any, cb: (error: Error | null, destination: string) => void) => void;
-    filename: (req: any, file: any, cb: (error: Error | null, filename: string) => void) => void;
+    destination?: (req: any, file: any, cb: (error: Error | null, destination: string) => void) => void;
+    filename?: (req: any, file: any, cb: (error: Error | null, filename: string) => void) => void;
   }
 
   interface Options {
@@ -17,12 +17,12 @@ declare module 'multer' {
     single(field: string): RequestHandler;
   }
 
-  interface MulterStatic {
+  interface Multer {
     (options?: Options): MulterInstance;
     diskStorage(options: DiskStorageOptions): any;
     memoryStorage(): any;
   }
 
-  const multer: MulterStatic;
+  const multer: Multer;
   export default multer;
 }

@@ -26,10 +26,20 @@ export const ExportPage: React.FC = () => {
     setExporting(true);
     try {
       const chaptersForExport = chapters.map(ch => {
-        const tipTapToPlain = (node: any): string => {
+        const tipTapToMarkdown = (node: any): string => {
           if (!node) return '';
-          if (node.type === 'text') return node.text || '';
-          const children = (node.content || []).map(tipTapToPlain).join('');
+          if (node.type === 'text') {
+            let text = node.text || '';
+            if (node.marks) {
+              for (const mark of node.marks) {
+                if (mark.type === 'bold') text = `**${text}**`;
+                else if (mark.type === 'italic') text = `*${text}*`;
+                else if (mark.type === 'code') text = `\`${text}\``;
+              }
+            }
+            return text;
+          }
+          const children = (node.content || []).map(tipTapToMarkdown).join('');
           switch (node.type) {
             case 'paragraph': return children + '\n\n';
             case 'heading': {
@@ -38,13 +48,16 @@ export const ExportPage: React.FC = () => {
             }
             case 'bulletList': return children + '\n';
             case 'orderedList': return children + '\n';
-            case 'listItem': return '- ' + children + '\n';
+            case 'listItem': return '- ' + children.trim() + '\n';
+            case 'blockquote': return '> ' + children.trim() + '\n\n';
+            case 'codeBlock': return '```\n' + children + '\n```\n\n';
+            case 'horizontalRule': return '\n---\n\n';
             default: return children;
           }
         };
         return {
           title: ch.title,
-          content: ch.content ? tipTapToPlain(ch.content).trim() : '',
+          content: ch.content ? tipTapToMarkdown(ch.content).trim() : '',
         };
       });
 
