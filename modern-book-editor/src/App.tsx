@@ -1,9 +1,13 @@
-import { Sidebar } from './components/Sidebar';
-import { BookEditor } from './components/BookEditor';
+import { Routes, Route } from 'react-router-dom';
+import { Dashboard } from './components/Dashboard';
+import { EditorLayout } from './components/EditorLayout';
+import { SettingsPage } from './components/SettingsPage';
+import { ExportPage } from './components/ExportPage';
+import { CoverDesigner } from './components/CoverDesigner';
 import { useBookStore } from './store/useBookStore';
 
 function App() {
-  const { theme, focusMode, sidebarOpen } = useBookStore();
+  const { theme } = useBookStore();
 
   const themeClasses = {
     light: 'bg-zinc-50 text-zinc-900',
@@ -11,12 +15,15 @@ function App() {
     sepia: 'bg-[#fdf9f0] text-amber-950'
   };
 
-  const currentThemeClass = themeClasses[theme] || themeClasses.light;
-
   return (
-    <div className={`flex h-screen w-screen overflow-hidden font-sans transition-colors duration-300 ${currentThemeClass}`}>
-      {!focusMode && sidebarOpen && <Sidebar />}
-      <BookEditor />
+    <div className={`h-screen w-screen overflow-hidden font-sans transition-colors duration-300 ${themeClasses[theme]}`}>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/editor/:manuscriptId?" element={<EditorLayout />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/export" element={<ExportPage />} />
+        <Route path="/cover" element={<CoverDesigner />} />
+      </Routes>
     </div>
   );
 }

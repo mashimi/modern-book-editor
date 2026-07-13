@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
@@ -7,7 +7,48 @@ import { useBookStore } from '../store/useBookStore';
 import { countWords, countCharacters } from '../utils/wordCounter';
 import { ImageUploadModal } from './ImageUploadModal';
 
-export const BookEditor: React.FC = () => {
+// ── Custom Image NodeView (shows caption in the editor) ─────────────────────
+const ImageComponent = ({ node }: any) => {
+  return (
+    <NodeViewWrapper className="image-node">
+      <div className="image-wrapper" style={{ margin: '2em auto', textAlign: 'center' }}>
+        <img
+          src={node.attrs.src}
+          alt={node.attrs.alt}
+          style={{ maxWidth: '100%', height: 'auto', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
+          draggable={false}
+        />
+        {node.attrs.caption && (
+          <p style={{ fontSize: '9pt', fontStyle: 'italic', color: '#666', marginTop: '0.5em', textAlign: 'center' }}>
+            {node.attrs.caption}
+          </p>
+        )}
+      </div>
+    </NodeViewWrapper>
+  );
+};
+
+// ── Extended Image with caption support ─────────────────────────────────────
+const CustomImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      caption: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.getAttribute('data-caption'),
+        renderHTML: (attributes: any) => {
+          if (!attributes.caption) return {};
+          return { 'data-caption': attributes.caption };
+        },
+      },
+    };
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ImageComponent);
+  },
+});
+
+export const BookEditor: React.FC<{ manuscriptId?: string }> = ({ manuscriptId }) => {
   const { 
     activeChapterId, 
     chapters, 
@@ -42,7 +83,7 @@ export const BookEditor: React.FC = () => {
       Placeholder.configure({
         placeholder: 'Begin writing your chapter...',
       }),
-      Image.configure({
+      CustomImage.configure({
         HTMLAttributes: { class: 'my-custom-image' },
       }),
     ],

@@ -3,7 +3,7 @@ import React, { useState, useRef } from 'react';
 interface ImageUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  editor: any; // TipTap editor instance
+  editor: any;
 }
 
 export const ImageUploadModal: React.FC<ImageUploadModalProps> = ({
@@ -15,9 +15,10 @@ export const ImageUploadModal: React.FC<ImageUploadModalProps> = ({
   const [caption, setCaption] = useState('');
   const [isBleed, setIsBleed] = useState(false);
   const [dpiWarning, setDpiWarning] = useState('');
+  const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -26,28 +27,38 @@ export const ImageUploadModal: React.FC<ImageUploadModalProps> = ({
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      setPreview(dataUrl);
+    // Upload to server (avoids base64 localStorage bloat)
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
 
-      // Quick DPI check by loading into an off-screen <img>
+      const res = await fetch('http://localhost:3001/api/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const data = await res.json();
+
+      setPreview(data.url);
+
+      // Quick DPI check
       const img = new Image();
       img.onload = () => {
-        // For a 6×9 book: at 300 DPI the text area is ~5″ wide → 1500 px.
-        // Full bleed needs ~6.5″ → 1950 px.
         const minWidth = isBleed ? 1950 : 1500;
-        if (img.width < minWidth) {
-          setDpiWarning(
-            `⚠️ Image is ${img.width}px wide. For print quality aim for ${minWidth}px+ (300 DPI at print size).`
-          );
-        } else {
-          setDpiWarning('');
-        }
+        setDpiWarning(
+          img.width < minWidth
+            ? `⚠️ Image is ${img.width}px wide. For print quality aim for ${minWidth}px+ (300 DPI at print size).`
+            : ''
+        );
       };
-      img.src = dataUrl;
-    };
-    reader.readAsDataURL(file);
+      img.src = data.url;
+    } catch (error) {
+      console.error('Upload failed', error);
+      alert('Image upload failed. Check the backend console.');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleInsert = () => {
@@ -63,7 +74,6 @@ export const ImageUploadModal: React.FC<ImageUploadModalProps> = ({
       })
       .run();
 
-    // Cleanup
     setPreview(null);
     setCaption('');
     setIsBleed(false);
@@ -79,45 +89,33 @@ export const ImageUploadModal: React.FC<ImageUploadModalProps> = ({
       <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-gray-800">🖼️ Insert Image</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-800 text-2xl">
-            &times;
-          </button>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
         </div>
 
         <div className="space-y-4">
-          {/* File picker */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Image File (PNG / JPG)
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Image File (PNG / JPG)</label>
             <input
               ref={fileRef}
               type="file"
               accept="image/*"
               onChange={handleFileSelect}
+              disabled={uploading}
               className="w-full border border-gray-300 rounded p-2 text-sm"
             />
           </div>
 
-          {/* Preview */}
+          {uploading && <p className="text-sm text-blue-600 text-center">Uploading…</p>}
+
           {preview && (
             <div className="border border-gray-200 rounded p-4 bg-gray-50">
-              <img
-                src={preview}
-                alt="Preview"
-                className="max-h-64 mx-auto object-contain"
-              />
-              {dpiWarning && (
-                <p className="text-yellow-700 text-sm mt-2 text-center">{dpiWarning}</p>
-              )}
+              <img src={preview} alt="Preview" className="max-h-64 mx-auto object-contain" />
+              {dpiWarning && <p className="text-yellow-700 text-sm mt-2 text-center">{dpiWarning}</p>}
             </div>
           )}
 
-          {/* Caption */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Caption (optional)
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Caption (optional)</label>
             <input
               type="text"
               value={caption}
@@ -127,34 +125,15 @@ export const ImageUploadModal: React.FC<ImageUploadModalProps> = ({
             />
           </div>
 
-          {/* Full-bleed toggle */}
           <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="bleed"
-              checked={isBleed}
-              onChange={(e) => setIsBleed(e.target.checked)}
-              className="rounded"
-            />
-            <label htmlFor="bleed" className="text-sm text-gray-700">
-              Full Bleed (image extends to page edge — requires 0.125″ extra on each side)
-            </label>
+            <input type="checkbox" id="bleed" checked={isBleed} onChange={(e) => setIsBleed(e.target.checked)} className="rounded" />
+            <label htmlFor="bleed" className="text-sm text-gray-700">Full Bleed</label>
           </div>
         </div>
 
-        {/* Actions */}
         <div className="flex justify-end gap-3 mt-6">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleInsert}
-            disabled={!preview}
-            className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
-          >
+          <button onClick={onClose} className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md">Cancel</button>
+          <button onClick={handleInsert} disabled={!preview || uploading} className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300">
             Insert Image
           </button>
         </div>

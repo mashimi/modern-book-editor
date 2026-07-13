@@ -24,6 +24,7 @@ interface BookStore {
   focusMode: boolean;
   sidebarOpen: boolean;
   searchQuery: string;
+  previewMode: 'off' | 'split' | 'fullscreen';
   
   // Actions
   addChapter: () => void;
@@ -41,6 +42,8 @@ interface BookStore {
   setFocusMode: (focusMode: boolean) => void;
   setSidebarOpen: (sidebarOpen: boolean) => void;
   setSearchQuery: (searchQuery: string) => void;
+  setPreviewMode: (mode: 'off' | 'split' | 'fullscreen') => void;
+  loadManuscript: (data: { chapters: Chapter[]; bookTitle: string; author: string; theme: string }) => void;
 }
 
 export const useBookStore = create<BookStore>()(
@@ -66,6 +69,7 @@ export const useBookStore = create<BookStore>()(
       focusMode: false,
       sidebarOpen: true,
       searchQuery: '',
+      previewMode: 'off',
 
       addChapter: () => set((state) => {
         const newId = Date.now().toString();
@@ -122,6 +126,14 @@ export const useBookStore = create<BookStore>()(
       setFocusMode: (focusMode) => set({ focusMode }),
       setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
       setSearchQuery: (searchQuery) => set({ searchQuery }),
+      setPreviewMode: (previewMode) => set({ previewMode }),
+      loadManuscript: (data) => set({
+        chapters: data.chapters,
+        bookTitle: data.bookTitle,
+        author: data.author,
+        theme: data.theme as 'light' | 'dark' | 'sepia',
+        activeChapterId: data.chapters[0]?.id || '',
+      }),
     }),
     {
       name: 'modern-book-editor-storage',
