@@ -1,12 +1,13 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import { spawn } from 'child_process';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { OpenAI } from 'openai';
 import dotenv from 'dotenv';
 import mammoth from 'mammoth';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import MarkdownIt from 'markdown-it';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,18 +29,10 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
   },
 });
-const upload = multer({
-  storage,
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(new Error('Only image files are allowed'), false);
-  },
-  limits: { fileSize: 10 * 1024 * 1024 },
-});
-
+const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 const docUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
-// ── DeepSeek / OpenAI Setup ────────────────────────────────────────────────
+// ── DeepSeek Setup ─────────────────────────────────────────────────────────
 const MODEL = process.env.MODEL || 'deepseek-chat';
 let openai: OpenAI;
 try {
@@ -49,125 +42,68 @@ try {
   });
 } catch {
   openai = null as unknown as OpenAI;
-  console.warn('⚠️  OpenAI client initialization failed (API key may be missing)');
 }
 
 // ── API: Parse Word Document ───────────────────────────────────────────────
 app.post('/api/parse-docx', docUpload.single('document'), async (req: Request & { file?: any }, res: Response) => {
-  if (!req.file) {
-    res.status(400).json({ error: 'No file uploaded' });
-    return;
-  }
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   try {
     const htmlResult = await mammoth.convertToHtml({ buffer: req.file.buffer });
     let html = htmlResult.value;
     html = html.replace(/<h1[^>]*>/gi, '\n\n=== CHAPTER START ===\n');
     html = html.replace(/<h2[^>]*>/gi, '\n\n=== SECTION START ===\n');
-    html = html.replace(/<h3[^>]*>/gi, '\n\n--- Subsection ---\n');
     html = html.replace(/<\/h[1-6]>/gi, '\n');
     html = html.replace(/<p[^>]*>/gi, '');
     html = html.replace(/<\/p>/gi, '\n\n');
-    html = html.replace(/<br\s*\/?>/gi, '\n');
-    html = html.replace(/<li[^>]*>/gi, '- ');
-    html = html.replace(/<\/li>/gi, '\n');
     html = html.replace(/<[^>]+>/g, '');
     html = html.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
     html = html.replace(/\n{4,}/g, '\n\n');
     const result = html.trim();
-    const title = req.file.originalname.replace(/\.docx$/i, '').replace(/[_-]/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-    res.json({ text: result, title, message: `Extracted ${result.length.toLocaleString()} characters` });
+    const title = req.file.originalname.replace(/\.docx$/i, '').replace(/[_-]/g, ' ');
+    res.json({ text: result, title });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to parse document', details: error.message });
   }
 });
 
 app.post('/api/upload-image', upload.single('image'), (req: Request & { file?: any }, res: Response) => {
-  if (!req.file) {
-    res.status(400).json({ error: 'No file uploaded' });
-    return;
-  }
-  const baseUrl = `http://localhost:${process.env.PORT || '3001'}`;
-  const url = `${baseUrl}/uploads/${req.file.filename}`;
-  res.json({ url });
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  res.json({ url: `http://localhost:${process.env.PORT || '3001'}/uploads/${req.file.filename}` });
 });
 
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok', model: MODEL, local: true });
-});
-
-// ── AI Formatting System Prompt ────────────────────────────────────────────
+// ── AI Formatting ──────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `
-You are an expert book editor. Convert raw, messy text into a structured Markdown manuscript.
-CRITICAL RULES:
-1. ONLY create a new chapter when you see explicit chapter headings like "Chapter 1", "CHAPTER ONE".
-2. Do NOT create chapters from sub-headings.
-3. METADATA: Extract title and author.
-4. CHAPTERS: Use "# Chapter N: Title" format.
-5. SECTIONS: Use "##" for sections within a chapter.
-6. CLEANUP: Merge broken paragraphs, remove URL-encoding artifacts, fix OCR errors.
-7. MARKDOWN: Use **bold**, *italics*, - bullet lists, > blockquotes.
-Return ONLY valid JSON. No markdown fences, no explanatory text.
-JSON FORMAT:
+You are an expert book editor. Convert raw text into a structured Markdown manuscript.
+1. ONLY create a new chapter when you see explicit headings like "Chapter 1".
+2. METADATA: Extract title and author.
+3. MARKDOWN: Use **bold**, *italics*, - bullet lists, > blockquotes.
+Return ONLY valid JSON. No markdown fences.
 {
   "metadata": { "title": "Book Title", "author": "Author" },
   "chapters": [ { "title": "Chapter 1: Title", "content": "Markdown body..." } ]
 }
 `.trim();
 
-const CONTINUATION_PROMPT = `
-You are continuing to format additional text for a book. The previous section ended with the chapter titled "$LAST_CHAPTER".
-Output ONLY a JSON object with a "chapters" array. No markdown fences.
-{
-  "chapters": [ { "title": "Chapter N: Title", "content": "The chapter body in markdown..." } ]
-}
-`.trim();
-
-// ── Lenient JSON Parser ────────────────────────────────────────────────────
 function parseLenientJSON(text: string): any {
   try { return JSON.parse(text); } catch {}
-
-  const structuralEnds: number[] = [];
-  let inString = false;
-  let escape = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (escape) { escape = false; continue; }
-    if (ch === '\\' && inString) { escape = true; continue; }
-    if (ch === '"') { inString = !inString; }
-    if (!inString && (ch === '}' || ch === ']')) structuralEnds.push(i);
-  }
-
-  for (let p = structuralEnds.length - 1; p >= 0; p--) {
-    try {
-      return JSON.parse(text.slice(0, structuralEnds[p] + 1));
-    } catch { continue; }
-  }
-
   const match = text.match(/\{.*\}/s);
   if (match) {
     try { return JSON.parse(match[0]); } catch {}
   }
-  throw new Error('Could not extract valid JSON from model response');
+  throw new Error('Could not extract valid JSON');
 }
 
-// ── Text Chunking ──────────────────────────────────────────────────────────
 const CHUNK_SIZE = 30_000;
-
 function chunkText(text: string): string[] {
   if (text.length <= CHUNK_SIZE) return [text];
   const paragraphs = text.split(/\n\n+/u);
   const chunks: string[] = [];
   let current = '';
-
   for (const para of paragraphs) {
     const candidate = current ? `${current}\n\n${para}` : para;
     if (candidate.length > CHUNK_SIZE) {
       if (current) chunks.push(current);
-      for (let i = 0; i < para.length; i += CHUNK_SIZE) {
-        chunks.push(para.slice(i, i + CHUNK_SIZE));
-      }
-      current = '';
+      current = para;
     } else {
       current = candidate;
     }
@@ -176,130 +112,149 @@ function chunkText(text: string): string[] {
   return chunks;
 }
 
-async function callModel(system: string, userText: string): Promise<any> {
-  if (!openai) throw new Error('OpenAI client not initialized - check your API key');
-  const completion = await openai.chat.completions.create({
-    model: MODEL,
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: userText },
-    ],
-    response_format: { type: 'json_object' },
-  });
-
-  const content = completion.choices[0]?.message?.content;
-  if (!content) throw new Error('Empty response from model');
-  return parseLenientJSON(content);
-}
-
-// ── API: Format Book (SSE Stream) ──────────────────────────────────────────
 app.post('/api/format-book', async (req: Request, res: Response) => {
   const { rawText } = req.body as { rawText?: string };
-
-  if (!rawText || rawText.trim().length < 100) {
-    res.status(400).json({ error: 'Text is too short. Please paste at least 100 characters.' });
-    return;
-  }
+  if (!rawText || rawText.trim().length < 100) return res.status(400).json({ error: 'Text too short' });
 
   try {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-
-    function sendSSE(event: string, data: any) {
-      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    }
 
     const chunks = chunkText(rawText);
-    const total = chunks.length;
-    sendSSE('meta', { total });
-
     let bookData: any = null;
 
-    for (let i = 0; i < total; i++) {
-      const isFirst = i === 0;
-      const chunk = chunks[i];
+    for (let i = 0; i < chunks.length; i++) {
+      res.write(`event: progress\ndata: ${JSON.stringify({ current: i + 1, total: chunks.length, chaptersSoFar: bookData?.chapters?.length ?? 0 })}\n\n`);
+      
+      const result = await openai.chat.completions.create({
+        model: MODEL,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: `Format this text:\n\n${chunks[i]}` }
+        ],
+        response_format: { type: 'json_object' },
+      });
 
-      sendSSE('progress', { current: i + 1, total, chaptersSoFar: bookData?.chapters?.length ?? 0 });
-
-      const lastChapterTitle = !isFirst && bookData?.chapters?.length
-        ? bookData.chapters[bookData.chapters.length - 1].title : '';
-
-      const systemPrompt = isFirst ? SYSTEM_PROMPT : CONTINUATION_PROMPT.replace('$LAST_CHAPTER', lastChapterTitle);
-      const userMessage = isFirst ? `Format this raw text:\n\n${chunk}` : `Continue formatting:\n\n${chunk}`;
-
-      const result = await callModel(systemPrompt, userMessage);
-
-      if (isFirst) {
-        if (!result.metadata) result.metadata = { title: 'Untitled Document', author: 'Unknown' };
-        if (!Array.isArray(result.chapters)) result.chapters = [];
-        for (const ch of result.chapters) { if (!ch.content) ch.content = ''; }
-        bookData = result;
+      const parsed = parseLenientJSON(result.choices[0]?.message?.content || '{}');
+      
+      if (i === 0) {
+        if (!parsed.metadata) parsed.metadata = { title: 'Untitled', author: 'Unknown' };
+        if (!Array.isArray(parsed.chapters)) parsed.chapters = [];
+        bookData = parsed;
       } else {
-        if (Array.isArray(result.chapters)) {
-          bookData.chapters.push(...result.chapters);
+        if (Array.isArray(parsed.chapters)) bookData.chapters.push(...parsed.chapters);
+      }
+    }
+
+    res.write(`event: complete\ndata: ${JSON.stringify(bookData)}\n\n`);
+    res.end();
+  } catch (error: any) {
+  }
+});
+
+// ── Pure Node.js PDF Generation ────────────────────────────────────────────
+function wrapText(text: string, font: any, fontSize: number, maxWidth: number): string[] {
+  const lines: string[] = [];
+  const words = text.split(' ');
+  let line = '';
+  for (const word of words) {
+    const testLine = line ? line + ' ' + word : word;
+    if (font.widthOfTextAtSize(testLine, fontSize) > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = testLine;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+app.post('/api/generate-pdf', async (req: Request, res: Response) => {
+  const { metadata, chapters } = req.body;
+  if (!chapters || !Array.isArray(chapters)) return res.status(400).json({ error: 'Invalid data' });
+
+  try {
+    const pdfDoc = await PDFDocument.create();
+    const bodyFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+    
+    const PW = 432, PH = 648; // 6x9 inches
+    const ML = 72, MR = 54;   // Margins
+    const MW = PW - ML - MR;
+    const FS = 11;            // Font size
+    const LH = 16.5;          // Line height
+
+    const md = new MarkdownIt();
+
+    // Title Page
+    let page = pdfDoc.addPage([PW, PH]);
+    page.drawText(metadata?.title || 'Untitled', { x: ML, y: PH - 300, size: 28, font: boldFont, color: rgb(0,0,0), maxWidth: MW });
+    page.drawText(`by ${metadata?.author || 'Anonymous'}`, { x: ML, y: PH - 340, size: 14, font: bodyFont, color: rgb(0.2,0.2,0.2) });
+
+    // Chapters
+    for (const ch of chapters) {
+      page = pdfDoc.addPage([PW, PH]);
+      let cy = PH - 120;
+      
+      page.drawText(ch.title || 'Chapter', { x: ML, y: cy, size: 20, font: boldFont, color: rgb(0,0,0), maxWidth: MW });
+      cy -= 40;
+
+      const tokens = md.parse(ch.content || '', {});
+      for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i];
+        if (cy < 60) {
+          page = pdfDoc.addPage([PW, PH]);
+          cy = PH - 72;
+        }
+
+        if (token.type === 'heading_open') {
+          const level = parseInt(token.tag.slice(1), 10);
+          cy -= 10;
+          const next = tokens[i + 1];
+          if (next && next.type === 'inline') {
+            const lines = wrapText(next.content, boldFont, 16 - (level * 2), MW);
+            for (const line of lines) {
+              page.drawText(line, { x: ML, y: cy, size: 16 - (level * 2), font: boldFont, color: rgb(0,0,0) });
+              cy -= LH;
+            }
+          }
+        } else if (token.type === 'inline' && token.content.trim()) {
+          const lines = wrapText(token.content, bodyFont, FS, MW);
+          for (const line of lines) {
+            if (cy < 60) {
+              page = pdfDoc.addPage([PW, PH]);
+              cy = PH - 72;
+            }
+            page.drawText(line, { x: ML, y: cy, size: FS, font: bodyFont, color: rgb(0,0,0) });
+            cy -= LH;
+          }
+          cy -= 6;
         }
       }
     }
 
-    sendSSE('complete', bookData);
-    res.end();
-  } catch (error: any) {
-    if (res.headersSent) {
-      res.write(`event: error\ndata: ${JSON.stringify({ error: error?.message || 'Unknown error' })}\n\n`);
-      res.end();
-      return;
+    // Page Numbers
+    const pages = pdfDoc.getPages();
+    for (let i = 1; i < pages.length; i++) {
+      pages[i].drawText(String(i), { x: PW / 2 - 6, y: 36, size: 9, font: bodyFont, color: rgb(0.4,0.4,0.4) });
     }
-    res.status(500).json({ error: 'Failed to format book.', details: error.message });
-  }
-});
 
-// ── API: Generate PDF (Bridges to Python WeasyPrint) ───────────────────────
-app.post('/api/generate-pdf', async (req: Request, res: Response) => {
-  const manuscriptData = req.body;
-
-  if (!manuscriptData || !manuscriptData.chapters || !Array.isArray(manuscriptData.chapters)) {
-    res.status(400).json({ error: 'Invalid manuscript data' });
-    return;
-  }
-
-  try {
-    const typesetScriptPath = path.join(__dirname, '..', 'typesetting', 'typeset.py');
-    const pythonProcess = spawn('python', [typesetScriptPath]);
-
-    let errorData = '';
-    pythonProcess.stderr.on('data', (data) => {
-      errorData += data.toString();
-    });
-
-    pythonProcess.on('close', (code) => {
-      if (code !== 0 && !res.headersSent) {
-        console.error('Python typesetting failed:', errorData);
-        res.status(500).json({ error: 'PDF generation failed in Python engine.', details: errorData });
-      }
-    });
-
-    pythonProcess.stdin.write(JSON.stringify(manuscriptData));
-    pythonProcess.stdin.end();
-
+    const pdfBytes = await pdfDoc.save();
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename="print_ready_book.pdf"');
-
-    pythonProcess.stdout.pipe(res);
+    res.setHeader('Content-Disposition', 'attachment; filename="book.pdf"');
+    res.send(Buffer.from(pdfBytes));
+    
   } catch (err: any) {
-    console.error('PDF generation error:', err);
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'PDF generation failed.', details: err.message });
-    }
+    console.error('PDF Error:', err);
+    res.status(500).json({ error: 'PDF generation failed', details: err.message });
   }
 });
 
 // ── Start Server ───────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '3001', 10);
 app.listen(PORT, () => {
-  console.log(`🚀 Local server: http://localhost:${PORT}`);
-  if (!process.env.OPENAI_API_KEY) {
-    console.warn('⚠️  OPENAI_API_KEY is not set — AI requests will fail!');
-  }
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
+  if (!process.env.OPENAI_API_KEY) console.warn('⚠️ OPENAI_API_KEY is missing!');
 });
