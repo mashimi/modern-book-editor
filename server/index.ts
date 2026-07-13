@@ -7,8 +7,6 @@ import { fileURLToPath } from 'url';
 import { OpenAI } from 'openai';
 import { z } from 'zod';
 import dotenv from 'dotenv';
-import { PDFDocument, StandardFonts, rgb, PageSizes } from 'pdf-lib';
-import MarkdownIt from 'markdown-it';
 import mammoth from 'mammoth';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -443,145 +441,7 @@ app.post('/api/format-book', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// PDF Generation — pure Node.js (no Python, no GTK needed)
-// ---------------------------------------------------------------------------
-
-// ── Helper: split text into wrapped lines ──────────────────────────────
-function wrapText(text: string, font: any, fontSize: number, maxWidth: number): string[] {
-  const lines: string[] = [];
-  const words = text.split(' ');
-  let line = '';
-  for (const word of words) {
-    const testLine = line ? line + ' ' + word : word;
-    const testWidth = font.widthOfTextAtSize(testLine, fontSize);
-    if (testWidth > maxWidth && line) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = testLine;
-    }
-  }
-  if (line) lines.push(line);
-  return lines;
-}
-
-// ── Helper: draw wrapped text, returns new y position ─────────────
-function drawWrapped(
-  page: any, text: string, font: any, fontSize: number,
-  x: number, y: number, maxWidth: number, lineHeight: number,
-  options?: { indent?: number; color?: any }
-): number {
-  const lines = wrapText(text, font, fontSize, maxWidth);
-  let cy = y;
-  const color = options?.color || rgb(0, 0, 0);
-  for (const line of lines) {
-    if (cy < 50) break;
-    page.drawText(line, { x: options?.indent ? x + options.indent : x, y: cy, size: fontSize, font, color });
-    cy -= lineHeight;
-  }
-  return cy;
-}
-
-
-// ── Helper: render markdown body text on a page ──────────────────
-function drawBodyText(
-  page: any, markdown: string,
-  bodyFont: any, boldFont: any, italicFont: any,
-  fontSize: number, x: number, y: number,
-  maxWidth: number, lineHeight: number
-): number {
-  const md = new MarkdownIt();
-  const tokens = md.parse(markdown, {});
-  let cy = y;
-
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (cy < 50) break;
-
-    if (token.type === 'heading_open') {
-      const level = parseInt(token.tag.slice(1), 10);
-      const size = level === 1 ? 24 : level === 2 ? 14 : 12;
-      const f = level === 1 ? boldFont : bodyFont;
-      cy -= 12;
-      const next = tokens[i + 1];
-      if (next && next.type === 'inline' && next.content.trim()) {
-        cy = drawWrapped(page, next.content, f, size, x, cy, maxWidth, size * 1.4);
-      }
-      cy -= 6;
-    } else if (token.type === 'inline' && token.content.trim()) {
-      const indent = 15;
-      const lines = wrapText(token.content, bodyFont, fontSize, maxWidth);
-      for (let j = 0; j < lines.length; j++) {
-        if (cy < 50) break;
-        page.drawText(lines[j], {
-          x: j === 0 ? x + indent : x, y: cy,
-          size: fontSize, font: bodyFont, color: rgb(0, 0, 0),
-        });
-        cy -= lineHeight;
-      }
-      cy -= 4;
-    } else if (token.type === 'bullet_list_open') {
-      cy -= 4;
-    }
-  }
-  return cy;
-}
-
-// ── Core PDF generation function ─────────────────────────────────
-async function generatePdfBuffer(manuscriptData: any): Promise<Buffer> {
-  const pdfDoc = await PDFDocument.create();
-  const bodyFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-  const boldFont = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
-  const italicFont = await pdfDoc.embedFont(StandardFonts.TimesRomanItalic);
-
-  const PW = 432; // 6in * 72pt
-  const PH = 648; // 9in * 72pt
-  const MI = 63;  // inner margin
-  const MO = 45;  // outer margin
-  const FS = 11;  // font size
-  const LH = 16.5;
-  const MW = PW - MI - MO;
-
-  const meta = manuscriptData.metadata || {};
-  const title = meta.title || 'Untitled';
-  const author = meta.author || 'Anonymous';
-  const chapters = manuscriptData.chapters || [];
-
-  // ── Title page
-  let page = pdfDoc.addPage([PW, PH]);
-  page.drawText(title, { x: MI, y: PH - 300, size: 32, font: boldFont, color: rgb(0, 0, 0), maxWidth: MW });
-  page.drawText(`by ${author}`, { x: MI, y: PH - 360, size: 16, font: bodyFont, color: rgb(0.2, 0.2, 0.2) });
-
-  // ── Table of Contents
-  page = pdfDoc.addPage([PW, PH]);
-  page.drawText('Contents', { x: MI, y: PH - 144, size: 24, font: boldFont, color: rgb(0, 0, 0) });
-  let tocY = PH - 200;
-  for (let i = 0; i < chapters.length; i++) {
-    const chTitle = chapters[i].title || `Chapter ${i + 1}`;
-    page.drawText(`${i + 1}. ${chTitle}`, { x: MI, y: tocY, size: 12, font: bodyFont, color: rgb(0, 0, 0) });
-    tocY -= 24;
-    if (tocY < 80) { page = pdfDoc.addPage([PW, PH]); tocY = PH - 60; }
-  }
-
-  // ── Chapters
-  for (const ch of chapters) {
-    const chTitle = ch.title || 'Chapter';
-    const contentMd = ch.content || '';
-    page = pdfDoc.addPage([PW, PH]);
-    page.drawText(chTitle, { x: MI, y: PH - 144, size: 24, font: boldFont, color: rgb(0, 0, 0) });
-    drawBodyText(page, contentMd, bodyFont, boldFont, italicFont, FS, MI, PH - 210, MW, LH);
-  }
-
-  // ── Page numbers (skip title page)
-  const allPages = pdfDoc.getPages();
-  for (let i = 1; i < allPages.length; i++) {
-    allPages[i].drawText(String(i), { x: PW / 2 - 6, y: 36, size: 9, font: bodyFont, color: rgb(0.4, 0.4, 0.4) });
-  }
-
-  return Buffer.from(await pdfDoc.save());
-}
-
-// ── PDF Generation endpoint (Node.js only)
+// ── PDF Generation endpoint (using Python WeasyPrint) ──────────────────
 app.post('/api/generate-pdf', async (req: Request, res: Response) => {
   const manuscriptData = req.body;
 
@@ -591,11 +451,34 @@ app.post('/api/generate-pdf', async (req: Request, res: Response) => {
   }
 
   try {
+    // Call the Python typesetting script
+    const pythonProcess = spawn('python', [path.join(__dirname, '..', 'typesetting', 'typeset.py')]);
+
+    let errorData = '';
+    pythonProcess.stderr.on('data', (data) => {
+      errorData += data.toString();
+    });
+
+    pythonProcess.on('close', (code) => {
+      if (code !== 0) {
+        console.error('Python typesetting failed:', errorData);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'PDF generation failed in Python engine.', details: errorData });
+        }
+      }
+    });
+
+    // Pipe the JSON input to Python's stdin
+    pythonProcess.stdin.write(JSON.stringify(manuscriptData));
+    pythonProcess.stdin.end();
+
+    // Set headers and pipe Python's stdout directly to the HTTP response
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="print_ready_book.pdf"');
-    const pdfBuffer = await generatePdfBuffer(manuscriptData);
-    res.send(pdfBuffer);
-    console.log('PDF generated successfully (Node.js engine)');
+
+    pythonProcess.stdout.pipe(res);
+
+    console.log('PDF generation delegated to Python WeasyPrint engine');
   } catch (err: any) {
     console.error('PDF generation error:', err);
     if (!res.headersSent) {
@@ -610,7 +493,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 app.listen(PORT, () => {
   console.log(`🚀 Local server: http://localhost:${PORT}`);
   console.log(`   Model: ${MODEL}`);
-  console.log(`   PDF Engine: pdf-lib (Node.js)`);
+  console.log(`   PDF Engine: WeasyPrint (Python)`);
   console.log(`   Database: IndexedDB (browser) + Local files`);
   if (!process.env.OPENAI_API_KEY) {
     console.warn('⚠️  OPENAI_API_KEY is not set — requests will fail!');

@@ -1,5 +1,5 @@
 declare module 'multer' {
-  import { Request, RequestHandler } from 'express';
+  import { RequestHandler } from 'express';
 
   interface DiskStorageOptions {
     destination: (req: any, file: any, cb: (error: Error | null, destination: string) => void) => void;
