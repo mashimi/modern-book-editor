@@ -53,6 +53,7 @@ export const Dashboard: React.FC = () => {
   };
 
   return (
+    <>
     <div className="flex h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans">
       
       {/* Left Sidebar */}
@@ -152,6 +153,7 @@ export const Dashboard: React.FC = () => {
       </main>
     </div>
 
-    <AIFormatModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} onSuccess={() => navigate('/editor')} />
+    <AIFormatModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} />
+    </>
   );
 };
