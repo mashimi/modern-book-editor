@@ -5,8 +5,7 @@ import { AIFormatModal } from './AIFormatModal';
 import { countWords } from '../utils/wordCounter';
 import { BookOpen, Plus, Trash2, Sparkles, Download, PanelLeftClose, Search, Columns3, Maximize2, EyeOff } from 'lucide-react';
 
-interface SidebarProps {
-export const Sidebar: React.FC<SidebarProps> = () => {
+export const Sidebar: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [isAIOpen, setAIOpen] = useState(false);
@@ -74,9 +73,6 @@ export const Sidebar: React.FC<SidebarProps> = () => {
           Preview
         </button>
       </div>
-
-  manuscriptId?: string;
-}
 
       <div className="p-3 border-b border-zinc-200 dark:border-zinc-800">
         <div className="relative">

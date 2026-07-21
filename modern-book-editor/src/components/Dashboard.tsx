@@ -27,12 +27,12 @@ export const Dashboard: React.FC = () => {
 
   const handleNewProject = async () => {
     const id = await createManuscript('Untitled Book');
+    navigate(`/editor/${id}`);
+  };
+
   const handleAIProject = async () => {
     const id = await createManuscript('AI Formatted Book');
     navigate(`/editor/${id}?ai=1`);
-  };
-
-    navigate(`/editor/${id}`);
   };
 
   const handleOpen = (m: any) => {
