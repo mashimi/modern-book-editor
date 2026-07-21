@@ -1,0 +1,90 @@
+# Changes Implemented from README.md
+
+## 1. Integrated Python WeasyPrint PDF Typesetting Pipeline
+- **Goal**: Replace inline pdf-lib PDF generation with the professional Python + WeasyPrint pipeline described in the README (crop marks, running headers, TOC, etc.)
+- **Changes**: Modified `server/index.ts`
+  - Removed `pdf-lib` and `markdown-it` imports; added `child_process` (spawn) and `zod` imports
+  - Added `generatePDFwithPython()` function that spawns `python typeset.py`, passes JSON via stdin, and returns the PDF buffer
+  - Added Windows PATH resolution for WeasyPrint DLLs (GTK3-Runtime, MSYS2, etc.) via `WEASYPRINT_DLL_DIRECTORIES` env var
+  - Updated `/api/generate-pdf` to use the Python pipeline instead of pdf-lib
+- **Files modified**: `server/index.ts`
+
+## 2. Added Zod Validation for AI Responses
+- **Goal**: Every model response is validated against a strict Zod schema before reaching the editor (as claimed in README)
+- **Changes**: Modified `server/index.ts`
+  - Added `ChapterSchema` (title + content validation) and `BookResponseSchema` (metadata + chapters array)
+  - The `/api/format-book` endpoint now validates parsed AI JSON through `BookResponseSchema.parse()`
+  - Graceful fallback if validation fails — accepts raw data rather than crashing
+- **Files modified**: `server/index.ts`
+
+## 3. Added Last-Chapter Context for Continuation Chunks
+- **Goal**: Continuation chunks are told what chapter title came before, so content appends naturally (as described in README)
+- **Changes**: Modified `server/index.ts`
+  - Track `lastChapterTitle` across chunk iterations
+  - When processing chunk > 0, prepend context: "The previous chunk ended with the chapter [title]. Continue naturally..."
+- **Files modified**: `server/index.ts`
+
+## 4. Fixed CHUNK_SIZE to Match Documentation
+- **Goal**: README specifies 8000 as default CHUNK_SIZE; code had 30000
+- **Changes**: Modified `server/index.ts`
+  - Changed from hardcoded `30_000` to `parseInt(process.env.CHUNK_SIZE || '8000', 10)`
+  - Added explanatory comment matching the README description
+  - Added `CHUNK_SIZE=8000` to `.env`
+- **Files modified**: `server/index.ts`, `server/.env`
+
+## 5. Added "Paste Raw Text" Mode to AI Format Modal
+- **Goal**: Support pasting messy text directly (e.g. copied PDF, brain dump) as described in README
+- **Changes**: Modified `modern-book-editor/src/components/AIFormatModal.tsx`
+  - Added `InputMode` type ('file' | 'paste')
+  - Added mode switcher UI with "Upload DOCX" / "Paste Text" tabs
+  - Added textarea for pasting raw text with character count and min-100 validation
+  - Updated `handleFormat` to handle both input modes
+  - Updated button disabled logic for both modes
+- **Files modified**: `modern-book-editor/src/components/AIFormatModal.tsx`
+
+## 6. Fixed Sidebar Button Text
+- **Goal**: Match README which says "✨ AI Format Book"
+- **Changes**: Changed `modern-book-editor/src/components/Sidebar.tsx` button text from "✨ Upload & Format DOCX" to "✨ AI Format Book"
+- **Files modified**: `modern-book-editor/src/components/Sidebar.tsx`
+
+## 7. Updated .env Configuration
+- **Goal**: Add CHUNK_SIZE env var documentation and WeasyPrint DLL directories docs
+- **Changes**: Updated `server/.env` with `CHUNK_SIZE=8000` and commented-out `WEASYPRINT_DLL_DIRECTORIES` option
+- **Files modified**: `server/.env`
+
+## 8. Fixed Empty Error Handler
+- **Goal**: The `/api/format-book` endpoint had an empty `catch` block that swallowed errors
+- **Changes**: Modified `server/index.ts` — added error logging and SSE error event emission
+- **Files modified**: `server/index.ts`
+
+
+## 9. Added /api/health Endpoint
+- **Goal**: Match the API endpoints table in README
+- **Changes**: Added `GET /api/health` route returning model, chunk size, and API key status
+- **Files modified**: `server/index.ts`
+
+## 10. Added Front Cover Image Section to typeset.py
+- **Goal**: Match the README's "Front Cover Image" section that references a 🖼️ FRONT COVER IMAGE comment
+- **Changes**: Added commented-out cover HTML block with `page: cover` style linking to the existing `@page cover` CSS
+- **Files modified**: `typesetting/typeset.py`
+
+## 11. Fixed Autosave Stale Closure in useLocalSync
+- **Goal**: The autosave was "remembering" chapters from the first render, overwriting later edits
+- **Changes**: Replaced `useLocalSync.ts`:
+  - Uses `useBookStore.getState()` inside the debounced save to always read the freshest state
+  - Uses `useMemo` + `debounce` instead of `useRef` for the debounced function
+  - Uses individual Zustand selectors instead of a single destructure to avoid stale closures
+  - Added proper cancellation tracking with `let cancelled` flag
+- **Files modified**: `modern-book-editor/src/hooks/useLocalSync.ts`
+
+## 12. Fixed AI Format Modal to Default to Current Document
+- **Goal**: The "AI Format Book" popup was always asking for a file upload/paste, ignoring the document already open in the editor
+- **Changes**: Replaced `AIFormatModal.tsx`:
+  - Added `'current'` mode as the default tab (was `'file'`)
+  - Reads chapters from `useBookStore()` and builds text representation via `extractTextFromJSON`
+  - Shows word count and chapter count of the current document
+  - Uses `marked` library to convert AI markdown response to HTML (instead of `markdownToProseMirror`)
+  - Displays inline errors instead of `alert()` popups
+  - Accepts `.txt`, `.md`, `.markdown` files natively in upload mode without API call
+  - Cleaner tab UI with `PenLine`/`Upload`/`Type` icons
+- **Files modified**: `modern-book-editor/src/components/AIFormatModal.tsx`

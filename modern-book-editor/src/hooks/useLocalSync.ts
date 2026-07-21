@@ -1,48 +1,64 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useBookStore } from '../store/useBookStore';
 import { saveManuscript, getManuscript } from '../db/localDb';
 import { debounce } from '../utils/debounce';
 
 export function useLocalSync(manuscriptId: string | undefined) {
-  const { chapters, bookTitle, author, theme, loadManuscript } = useBookStore();
-  const isLoading = useRef(false);
-  const lastSave = useRef<number>(0);
+  const loadManuscript = useBookStore((s) => s.loadManuscript);
+  const isLoadingRef = useRef(false);
 
-  // Load manuscript on mount
+  // Load manuscript once when the id changes.
   useEffect(() => {
     if (!manuscriptId) return;
-    isLoading.current = true;
-    getManuscript(manuscriptId).then(data => {
-      if (data) {
-        loadManuscript({
-          chapters: data.chapters,
-          bookTitle: data.title,
-          author: data.author,
-          theme: data.metadata?.theme || 'light',
-        });
-      }
-      isLoading.current = false;
-    });
+    let cancelled = false;
+    isLoadingRef.current = true;
+
+    getManuscript(manuscriptId)
+      .then((data) => {
+        if (cancelled) return;
+        if (data) {
+          loadManuscript({
+            chapters: data.chapters,
+            bookTitle: data.title,
+            author: data.author,
+            theme: data.metadata?.theme || 'light',
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) isLoadingRef.current = false;
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [manuscriptId, loadManuscript]);
 
-  // Auto-save to IndexedDB
-  const debouncedSave = useRef(
-    debounce(async (id: string) => {
-      if (isLoading.current) return;
-      lastSave.current = Date.now();
-      await saveManuscript(id, {
-        title: bookTitle,
-        author,
-        chapters,
-        metadata: { theme, updatedAt: Date.now() },
-      });
-    }, 1000)
-  ).current;
+  // Autosave — ALWAYS reads the freshest state, never a stale closure.
+  const debouncedSave = useMemo(
+    () =>
+      debounce((id: string) => {
+        if (isLoadingRef.current) return;
+        const s = useBookStore.getState();
+        saveManuscript(id, {
+          title: s.bookTitle,
+          author: s.author,
+          chapters: s.chapters,
+          metadata: { theme: s.theme, updatedAt: Date.now() } as any,
+        }).catch((err) => console.error('Autosave failed:', err));
+      }, 800),
+    []
+  );
+
+  const chapters = useBookStore((s) => s.chapters);
+  const bookTitle = useBookStore((s) => s.bookTitle);
+  const author = useBookStore((s) => s.author);
+  const theme = useBookStore((s) => s.theme);
 
   useEffect(() => {
-    if (!manuscriptId || isLoading.current) return;
+    if (!manuscriptId || isLoadingRef.current) return;
     debouncedSave(manuscriptId);
-  }, [chapters, bookTitle, author, theme, manuscriptId, debouncedSave]);
+  }, [manuscriptId, chapters, bookTitle, author, theme, debouncedSave]);
 
   return { isSynced: true };
 }
