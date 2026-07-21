@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useBookStore } from '../store/useBookStore';
 import { createManuscript, getAllManuscripts, deleteManuscript } from '../db/localDb';
 import { countWords } from '../utils/wordCounter';
+import { AIFormatModal } from './AIFormatModal';
 import {
   BookOpen, Plus, Trash2, Sparkles, FileText, Settings, 
   Download, PenLine, Clock, Upload
@@ -13,6 +14,7 @@ export const Dashboard: React.FC = () => {
   const { loadManuscript } = useBookStore();
   const [manuscripts, setManuscripts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
 
   useEffect(() => { loadProjects(); }, []);
 
@@ -88,7 +90,7 @@ export const Dashboard: React.FC = () => {
             <p className="text-sm text-zinc-500">Jump straight into a blank document and start writing.</p>
           </div>
 
-          <div onClick={() => navigate('/editor')} className="cursor-pointer group bg-gradient-to-br from-purple-600 to-blue-600 text-white rounded-xl p-6 hover:opacity-90 transition-all">
+          <div onClick={() => setIsAIModalOpen(true)} className="cursor-pointer group bg-gradient-to-br from-purple-600 to-blue-600 text-white rounded-xl p-6 hover:opacity-90 transition-all">
             <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center mb-4">
               <Sparkles className="w-5 h-5" />
             </div>
@@ -144,5 +146,7 @@ export const Dashboard: React.FC = () => {
         </div>
       </main>
     </div>
+
+    <AIFormatModal isOpen={isAIModalOpen} onClose={() => setIsAIModalOpen(false)} onSuccess={() => navigate('/editor')} />
   );
 };

@@ -6,8 +6,8 @@ import { fileURLToPath } from 'url';
 import { OpenAI } from 'openai';
 import dotenv from 'dotenv';
 import mammoth from 'mammoth';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import MarkdownIt from 'markdown-it';
+import { spawn } from 'child_process';
+import { z } from 'zod';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +43,38 @@ try {
 } catch {
   openai = null as unknown as OpenAI;
 }
+
+// ── Config ────────────────────────────────────────────────────────────────
+// CHUNK_SIZE controls how many characters are sent per DeepSeek call.
+// Default is 8000 — large enough for natural chapter grouping, small enough
+// to avoid token limit truncation. Override via CHUNK_SIZE env variable.
+const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE || '8000', 10);
+
+// ── Zod schemas for AI response validation ────────────────────────────────
+const ChapterSchema = z.object({
+  title: z.string().min(1, 'Chapter title must not be empty'),
+  content: z.string().min(1, 'Chapter content must not be empty'),
+});
+
+const BookResponseSchema = z.object({
+  metadata: z.object({
+    title: z.string().default('Untitled'),
+    author: z.string().default('Unknown'),
+  }),
+  chapters: z.array(ChapterSchema).min(1, 'At least one chapter is required'),
+});
+
+// ── Health Check ──────────────────────────────────────────────────────────
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    model: MODEL,
+    chunkSize: CHUNK_SIZE,
+    openaiConfigured: !!process.env.OPENAI_API_KEY,
+  });
+});
+
+
 
 // ── API: Parse Word Document ───────────────────────────────────────────────
 app.post('/api/parse-docx', docUpload.single('document'), async (req: Request & { file?: any }, res: Response) => {
@@ -93,7 +125,6 @@ function parseLenientJSON(text: string): any {
   throw new Error('Could not extract valid JSON');
 }
 
-const CHUNK_SIZE = 30_000;
 function chunkText(text: string): string[] {
   if (text.length <= CHUNK_SIZE) return [text];
   const paragraphs = text.split(/\n\n+/u);
@@ -124,20 +155,45 @@ app.post('/api/format-book', async (req: Request, res: Response) => {
     const chunks = chunkText(rawText);
     let bookData: any = null;
 
+    let lastChapterTitle: string | null = null;
+
     for (let i = 0; i < chunks.length; i++) {
       res.write(`event: progress\ndata: ${JSON.stringify({ current: i + 1, total: chunks.length, chaptersSoFar: bookData?.chapters?.length ?? 0 })}\n\n`);
-      
+
+      // Build user message — include last-chapter context for continuation chunks
+      let userContent = `Format this text:\n\n${chunks[i]}`;
+      if (i > 0 && lastChapterTitle) {
+        userContent = `The previous chunk ended with the chapter "${lastChapterTitle}". Continue naturally from where that text left off, appending new chapters as needed.\n\n${userContent}`;
+      }
+
       const result = await openai.chat.completions.create({
         model: MODEL,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: `Format this text:\n\n${chunks[i]}` }
+          { role: 'user', content: userContent }
         ],
         response_format: { type: 'json_object' },
       });
 
-      const parsed = parseLenientJSON(result.choices[0]?.message?.content || '{}');
-      
+      const raw = parseLenientJSON(result.choices[0]?.message?.content || '{}');
+
+      // Validate against Zod schema
+      let parsed: any;
+      try {
+        parsed = BookResponseSchema.parse(raw);
+      } catch (validationError) {
+        // Fallback: accept what we got even if incomplete
+        parsed = {
+          metadata: raw.metadata || { title: 'Untitled', author: 'Unknown' },
+          chapters: Array.isArray(raw.chapters) ? raw.chapters : [],
+        };
+      }
+
+      // Track last chapter title for continuation context
+      if (Array.isArray(parsed.chapters) && parsed.chapters.length > 0) {
+        lastChapterTitle = parsed.chapters[parsed.chapters.length - 1].title;
+      }
+
       if (i === 0) {
         if (!parsed.metadata) parsed.metadata = { title: 'Untitled', author: 'Unknown' };
         if (!Array.isArray(parsed.chapters)) parsed.chapters = [];
@@ -150,102 +206,90 @@ app.post('/api/format-book', async (req: Request, res: Response) => {
     res.write(`event: complete\ndata: ${JSON.stringify(bookData)}\n\n`);
     res.end();
   } catch (error: any) {
+    console.error('AI Format Error:', error);
+    if (!res.headersSent) {
+      res.write(`event: error\ndata: ${JSON.stringify({ error: error.message || 'AI formatting failed' })}\n\n`);
+    }
+    res.end();
   }
 });
 
-// ── Pure Node.js PDF Generation ────────────────────────────────────────────
-function wrapText(text: string, font: any, fontSize: number, maxWidth: number): string[] {
-  const lines: string[] = [];
-  const words = text.split(' ');
-  let line = '';
-  for (const word of words) {
-    const testLine = line ? line + ' ' + word : word;
-    if (font.widthOfTextAtSize(testLine, fontSize) > maxWidth && line) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = testLine;
-    }
-  }
-  if (line) lines.push(line);
-  return lines;
+// ── Python WeasyPrint PDF Generation ──────────────────────────────────────
+/**
+ * Calls the Python typesetting script (typeset.py) which uses WeasyPrint to
+ * produce a print-ready PDF with crop marks, running headers, TOC, etc.
+ */
+function generatePDFwithPython(payload: object): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const typesetDir = path.join(__dirname, '..', 'typesetting');
+    const scriptPath = path.join(typesetDir, 'typeset.py');
+
+    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+
+    // Build PATH for WeasyPrint DLL resolution (Windows)
+    const weasyprintDirs = (process.env.WEASYPRINT_DLL_DIRECTORIES || '')
+      .split(';')
+      .filter(Boolean);
+    const defaultDirs = [
+      'C:\\GTK3-Runtime\\bin',
+      'C:\\Program Files\\GTK3-Runtime Win64\\bin',
+      'C:\\msys64\\mingw64\\bin',
+    ];
+    const extraPaths = [...defaultDirs, ...weasyprintDirs].join(';');
+    const childPath = process.env.PATH
+      ? `${extraPaths};${process.env.PATH}`
+      : extraPaths;
+
+    const child = spawn(pythonCmd, [scriptPath], {
+      cwd: typesetDir,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+        PATH: childPath,
+      },
+    });
+
+    const chunks: Buffer[] = [];
+    let errorOutput = '';
+
+    child.stdout.on('data', (data: Buffer) => chunks.push(data));
+    child.stderr.on('data', (data: Buffer) => { errorOutput += data.toString(); });
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Python typesetting exited with code ${code}: ${errorOutput}`));
+        return;
+      }
+      resolve(Buffer.concat(chunks));
+    });
+
+    child.on('error', (err) => {
+      reject(new Error(`Failed to start Python typesetting: ${err.message}`));
+    });
+
+    // Write JSON payload to stdin and close
+    child.stdin.write(JSON.stringify(payload));
+    child.stdin.end();
+  });
 }
 
 app.post('/api/generate-pdf', async (req: Request, res: Response) => {
   const { metadata, chapters } = req.body;
   if (!chapters || !Array.isArray(chapters)) return res.status(400).json({ error: 'Invalid data' });
 
+  const payload = {
+    metadata: metadata || { title: 'Untitled', author: 'Anonymous' },
+    chapters: chapters.map((ch: any) => ({
+      title: ch.title || 'Chapter',
+      content: ch.content || '',
+    })),
+  };
+
   try {
-    const pdfDoc = await PDFDocument.create();
-    const bodyFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-    const boldFont = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
-    
-    const PW = 432, PH = 648; // 6x9 inches
-    const ML = 72, MR = 54;   // Margins
-    const MW = PW - ML - MR;
-    const FS = 11;            // Font size
-    const LH = 16.5;          // Line height
-
-    const md = new MarkdownIt();
-
-    // Title Page
-    let page = pdfDoc.addPage([PW, PH]);
-    page.drawText(metadata?.title || 'Untitled', { x: ML, y: PH - 300, size: 28, font: boldFont, color: rgb(0,0,0), maxWidth: MW });
-    page.drawText(`by ${metadata?.author || 'Anonymous'}`, { x: ML, y: PH - 340, size: 14, font: bodyFont, color: rgb(0.2,0.2,0.2) });
-
-    // Chapters
-    for (const ch of chapters) {
-      page = pdfDoc.addPage([PW, PH]);
-      let cy = PH - 120;
-      
-      page.drawText(ch.title || 'Chapter', { x: ML, y: cy, size: 20, font: boldFont, color: rgb(0,0,0), maxWidth: MW });
-      cy -= 40;
-
-      const tokens = md.parse(ch.content || '', {});
-      for (let i = 0; i < tokens.length; i++) {
-        const token = tokens[i];
-        if (cy < 60) {
-          page = pdfDoc.addPage([PW, PH]);
-          cy = PH - 72;
-        }
-
-        if (token.type === 'heading_open') {
-          const level = parseInt(token.tag.slice(1), 10);
-          cy -= 10;
-          const next = tokens[i + 1];
-          if (next && next.type === 'inline') {
-            const lines = wrapText(next.content, boldFont, 16 - (level * 2), MW);
-            for (const line of lines) {
-              page.drawText(line, { x: ML, y: cy, size: 16 - (level * 2), font: boldFont, color: rgb(0,0,0) });
-              cy -= LH;
-            }
-          }
-        } else if (token.type === 'inline' && token.content.trim()) {
-          const lines = wrapText(token.content, bodyFont, FS, MW);
-          for (const line of lines) {
-            if (cy < 60) {
-              page = pdfDoc.addPage([PW, PH]);
-              cy = PH - 72;
-            }
-            page.drawText(line, { x: ML, y: cy, size: FS, font: bodyFont, color: rgb(0,0,0) });
-            cy -= LH;
-          }
-          cy -= 6;
-        }
-      }
-    }
-
-    // Page Numbers
-    const pages = pdfDoc.getPages();
-    for (let i = 1; i < pages.length; i++) {
-      pages[i].drawText(String(i), { x: PW / 2 - 6, y: 36, size: 9, font: bodyFont, color: rgb(0.4,0.4,0.4) });
-    }
-
-    const pdfBytes = await pdfDoc.save();
+    const pdfBuffer = await generatePDFwithPython(payload);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="book.pdf"');
-    res.send(Buffer.from(pdfBytes));
-    
+    res.send(pdfBuffer);
   } catch (err: any) {
     console.error('PDF Error:', err);
     res.status(500).json({ error: 'PDF generation failed', details: err.message });

@@ -32,7 +32,7 @@ interface BookStore {
   setActiveChapter: (id: string) => void;
   updateChapterContent: (id: string, content: JSONContent) => void;
   applyPendingHtml: (id: string, content: JSONContent) => void;
-  importFromAI: (title: string, chapters: { title: string; htmlContent: string }[]) => void;
+  importFromAI: (title: string, chapters: { title: string; htmlContent?: string; content?: JSONContent }[]) => void;
   updateChapterTitle: (id: string, title: string) => void;
   setBookTitle: (title: string) => void;
   setAuthor: (author: string) => void;
@@ -104,7 +104,7 @@ export const useBookStore = create<BookStore>()(
         const newChapters: Chapter[] = chapters.map((ch, index) => ({
           id: `ai-${Date.now()}-${index}`,
           title: ch.title,
-          content: null,
+          content: ch.content || null,
           pendingHtml: ch.htmlContent,
         }));
         return {

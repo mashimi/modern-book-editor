@@ -206,7 +206,7 @@ export const Sidebar: React.FC<{ manuscriptId?: string }> = ({ manuscriptId }) =
           onClick={() => setIsModalOpen(true)}
           className="w-full py-2 px-4 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-md text-sm font-semibold hover:opacity-90 flex items-center justify-center gap-2 shadow-md transition-opacity"
         >
-          ✨ Upload & Format DOCX
+          ✨ AI Format Book
         </button>
       </div>
 

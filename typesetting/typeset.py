@@ -28,6 +28,16 @@ def generate_pdf(json_data: dict) -> None:
     title = metadata.get("title", "Untitled")
     author = metadata.get("author", "Anonymous")
 
+    # ── 🖼️ FRONT COVER IMAGE ────────────────────────────────────────────
+    # Uncomment the block below to add a full-bleed cover image.
+    # For a 6×9 book, use an image at least 1950×2925 px (300 DPI).
+    #
+    # cover_html = '''
+    # <section class="frontmatter" id="cover" style="page: cover;">
+    #     <img src="file:///absolute/path/to/your/cover.jpg" class="full-bleed" />
+    # </section>'''
+    # html_body = cover_html + html_body
+
     html_body = f"""
     <section class="frontmatter" id="titlepage">
         <div style="text-align: center; margin-top: 4in; page-break-before: right;">
