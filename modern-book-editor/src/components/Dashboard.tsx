@@ -27,6 +27,11 @@ export const Dashboard: React.FC = () => {
 
   const handleNewProject = async () => {
     const id = await createManuscript('Untitled Book');
+  const handleAIProject = async () => {
+    const id = await createManuscript('AI Formatted Book');
+    navigate(`/editor/${id}?ai=1`);
+  };
+
     navigate(`/editor/${id}`);
   };
 

@@ -122,10 +122,15 @@ export async function getAllManuscripts(): Promise<DBSchema['manuscripts'][]> {
   });
 }
 
-export async function saveManuscript(id: string, data: Partial<DBSchema['manuscripts']>): Promise<void> {
+export async function saveManuscript(
+  id: string,
+  data: Partial<Omit<DBSchema['manuscripts'], 'metadata'>> & {
+    metadata?: Partial<DBSchema['manuscripts']['metadata']>;
+  }
+): Promise<void> {
   const existing = await getManuscript(id);
   if (!existing) throw new Error('Manuscript not found');
-  const updated = { ...existing, ...data, metadata: { ...existing.metadata, ...data.metadata, updatedAt: Date.now() } };
+  const updated = { ...existing, ...data, metadata: { ...existing.metadata, ...(data.metadata || {}), updatedAt: Date.now() } };
   const store = await getStore('manuscripts', 'readwrite');
   await new Promise<void>((resolve, reject) => {
     const req = store.put(updated);
