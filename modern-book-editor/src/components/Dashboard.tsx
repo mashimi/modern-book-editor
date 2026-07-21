@@ -85,6 +85,14 @@ export const Dashboard: React.FC = () => {
           <button onClick={() => navigate('/settings')} className="flex items-center gap-3 px-4 py-2.5 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors">
             <Settings className="w-4 h-4" /> Typography
           </button>
+          <button onClick={() => navigate('/export')} className="flex items-center gap-3 px-4 py-2.5 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors">
+            <Download className="w-4 h-4" /> Export
+          </button>
+        </nav>
+        <div className="mt-auto pt-6 border-t border-zinc-200 dark:border-zinc-800">
+          <p className="text-xs text-zinc-400">Local Storage</p>
+          <p className="text-sm font-medium">{manuscripts.length} Book(s)</p>
+        </div>
 
       <main className="flex-1 overflow-y-auto">
         <header className="p-8 border-b border-zinc-200 dark:border-zinc-800">
@@ -122,15 +130,6 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
 
-          <button onClick={() => navigate('/export')} className="flex items-center gap-3 px-4 py-2.5 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors">
-            <Download className="w-4 h-4" /> Export
-          </button>
-        </nav>
-        <div className="mt-auto pt-6 border-t border-zinc-200 dark:border-zinc-800">
-          <p className="text-xs text-zinc-400">Local Storage</p>
-          <p className="text-sm font-medium">{manuscripts.length} Book(s)</p>
-        </div>
-      </aside>
         <div className="px-8 pb-12">
           <h3 className="text-sm font-semibold text-zinc-500 uppercase tracking-wider mb-4 flex items-center gap-2">
             <Clock className="w-4 h-4" /> Your books
@@ -177,3 +176,4 @@ export const Dashboard: React.FC = () => {
     </>
   );
 };
+      </aside>
