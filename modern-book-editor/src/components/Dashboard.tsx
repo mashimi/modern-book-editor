@@ -93,6 +93,7 @@ export const Dashboard: React.FC = () => {
           <p className="text-xs text-zinc-400">Local Storage</p>
           <p className="text-sm font-medium">{manuscripts.length} Book(s)</p>
         </div>
+      </aside>
 
       <main className="flex-1 overflow-y-auto">
         <header className="p-8 border-b border-zinc-200 dark:border-zinc-800">
@@ -176,4 +177,3 @@ export const Dashboard: React.FC = () => {
     </>
   );
 };
-      </aside>
