@@ -156,6 +156,7 @@ export const AIFormatModal: React.FC<AIFormatModalProps> = ({
     }
   };
 
+  const canFormat = !isProcessing && (mode === 'upload' ? !!file : rawText.trim().length >= 50);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -240,4 +241,3 @@ export const AIFormatModal: React.FC<AIFormatModalProps> = ({
     </div>
   );
 };
-  const canFormat = !isProcessing && (mode === 'upload' ? !!file : rawText.trim().length >= 50);
